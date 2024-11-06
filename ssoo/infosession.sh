@@ -49,8 +49,13 @@ while [[ "$#" -gt 0 ]]; do
             done
             ;;
         -d)
-            directorio_actual="$2"
-            shift 2
+            shift
+            if [[ "$#" -eq 0 || "$1" == -* ]]; then
+                echo "Error: La opción -d requiere un directorio."
+                exit 1
+            fi
+            directorio_actual="$1"
+            shift
             ;;
         -t)
             con_terminal=true
@@ -68,7 +73,7 @@ echo "Directorio especificado: $directorio_actual"
 echo "Mostrar sesión 0: $mostrar_sesion_0"
 echo "Mostrar procesos: $mostrar_tabla_procesos"
 
-pids_directorio=()
+pids_directorio=() 
 if [[ -n "$directorio_actual" ]]; then
     mapfile -t pids_directorio < <(lsof +d "$directorio_actual" 2>/dev/null | awk 'NR>1 {print $2}' | sort -u)
     if [[ ${#pids_directorio[@]} -eq 0 ]]; then
@@ -88,7 +93,7 @@ mostrar_procesos() {
             split(pids, pids_array, "|")
             for (pid in pids_array) pids_set[pids_array[pid]]
         }
-        {
+        NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
             pid_valido = ($3 in pids_set || length(pids_set) == 0)
             sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
@@ -98,7 +103,7 @@ mostrar_procesos() {
                 printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7
             }
         }
-    ' | sort -t ' ' -k4 
+    ' | sort -k4,4
 }
 
 mostrar_sesiones() {
@@ -112,7 +117,7 @@ mostrar_sesiones() {
             split(pids, pids_array, "|")
             for (pid in pids_array) pids_set[pids_array[pid]]
         }
-        {
+        NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
             pid_valido = ($3 in pids_set || length(pids_set) == 0)
             sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)

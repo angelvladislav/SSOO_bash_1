@@ -9,7 +9,7 @@ mostrar_ayuda() {
     echo "  -z              Muestra también los procesos con identificador de sesión 0."
     echo "  -u user1 ...    Muestra los procesos de los usuarios especificados."
     echo "  -d dir          Muestra procesos abiertos en un directorio especificado."
-    echo "  -t              Los procesos seleccionados tendrán que tener fozosamente una termnal asociada."
+    echo "  -t              Los procesos seleccionados tendrán que tener forzosamente una termnal asociada."
     exit 0
 }
 
@@ -20,9 +20,12 @@ fi
 
 mostrar_sesion_0=false
 mostrar_tabla_procesos=false
+con_terminal=false
+mostrar_tabla_memoria=false
+mostrar_tabla_grupos=false
+mostrar_tabla_reversa=false
 usuario_actual=()
 directorio_actual=""
-con_terminal=false
 
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -61,6 +64,18 @@ while [[ "$#" -gt 0 ]]; do
             con_terminal=true
             shift 
             ;;
+        -sm)
+            mostrar_tabla_memoria=true
+            shift
+            ;;
+        -sg)
+            mostrar_tabla_grupos=true
+            shift
+            ;;
+        -r)
+            mostrar_tabla_reversa=true
+            shift
+            ;;
         *)
             echo "Error: Opción no válida"
             exit 1
@@ -72,6 +87,9 @@ echo "Usuarios especificados: ${usuarios[*]}"
 echo "Directorio especificado: $directorio_actual"
 echo "Mostrar sesión 0: $mostrar_sesion_0"
 echo "Mostrar procesos: $mostrar_tabla_procesos"
+echo "Mostrar tabla segun la memoria: $mostrar_tabla_memoria"
+echo "Mostrar tabla segun grupos: $mostrar_tabla_grupos"
+echo "Mostrar tabla reversa: $mostrar_tabla_reversa"
 
 pids_directorio=() 
 if [[ -n "$directorio_actual" ]]; then
@@ -103,16 +121,16 @@ mostrar_procesos() {
                 printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7
             }
         }
-    ' | sort -k4,4
+    ' | sort -k4,4 -f
 }
 
-mostrar_sesiones() {
-    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "PID_LIDER" "USER_LIDER" "TTY" "CMD"
-    echo "---------------------------------------------------------------------"
+mostrar_procesos_reversa() {
+    printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n" "SID" "PGID" "PID" "USER" "TTY" "%MEM" "CMD"
+    echo "-------------------------------------------------------------------------"
 
     usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
             for (pid in pids_array) pids_set[pids_array[pid]]
@@ -124,31 +142,339 @@ mostrar_sesiones() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7
+            }
+        }
+    ' | sort -r -k4,4 -f 
+}
+
+mostrar_procesos_memoria() {
+    printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n" "SID" "PGID" "PID" "USER" "TTY" "%MEM" "CMD"
+    echo "-------------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1{
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7
+            }
+        }
+    ' | sort -n -k6,6
+}
+
+mostrar_procesos_memoria_reversa() {
+    printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n" "SID" "PGID" "PID" "USER" "TTY" "%MEM" "CMD"
+    echo "-------------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1{
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                printf "%-10s %-10s %-10s %-15s %-10s %-10s %s\n", $1, $2, $3, $4, $5, $6, $7
+            }
+        }
+    ' | sort -r -n -k6,6
+}
+
+mostrar_sesiones() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
                 procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
                 if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_pid"] = $1
                     procesos[$1]["lider_user"] = $4
                     procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $6
+                    procesos[$1]["lider_cmd"] = $7
                 }
             }
         }
         END {
             for (sid in procesos) {
-                lider_pid = procesos[sid]["lider_pid"] ? procesos[sid]["lider_pid"] : "?"
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
                 lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
                 lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
                 lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
                 grupos = length(procesos[sid]["grupos"])
 
-                printf "%-10s %-10d %-10s %-15s %-10s %s\n", sid, grupos, lider_pid, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
             }
         }
-    ' | sort -k4,4
+    ' | tr -s ' ' | sort -k4,4 -f
 }
 
-if [[ "$mostrar_tabla_procesos" == true ]]; then 
+mostrar_sesiones_reversa() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
+                if (!procesos[$1]["lider"]) {
+                    procesos[$1]["lider_user"] = $4
+                    procesos[$1]["lider_tty"] = $5
+                    procesos[$1]["lider_cmd"] = $7
+                }
+            }
+        }
+        END {
+            for (sid in procesos) {
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
+                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
+                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
+                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
+                grupos = length(procesos[sid]["grupos"])
+
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+            }
+        }
+    ' | sort -r -k4,4 -f 
+}
+
+mostrar_sesiones_memoria() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
+                if (!procesos[$1]["lider"]) {
+                    procesos[$1]["lider_user"] = $4
+                    procesos[$1]["lider_tty"] = $5
+                    procesos[$1]["lider_cmd"] = $7
+                }
+            }
+        }
+        END {
+            for (sid in procesos) {
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
+                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
+                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
+                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
+                grupos = length(procesos[sid]["grupos"])
+
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+            }
+        }
+    ' | sort -k3,3
+}
+
+mostrar_sesiones_memoria_reversa() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
+                if (!procesos[$1]["lider"]) {
+                    procesos[$1]["lider_user"] = $4
+                    procesos[$1]["lider_tty"] = $5
+                    procesos[$1]["lider_cmd"] = $7
+                }
+            }
+        }
+        END {
+            for (sid in procesos) {
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
+                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
+                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
+                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
+                grupos = length(procesos[sid]["grupos"])
+
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+            }
+        }
+    ' | sort -r -k3,3
+}
+
+mostrar_sesiones_grupos() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
+                if (!procesos[$1]["lider"]) {
+                    procesos[$1]["lider_user"] = $4
+                    procesos[$1]["lider_tty"] = $5
+                    procesos[$1]["lider_cmd"] = $7
+                }
+            }
+        }
+        END {
+            for (sid in procesos) {
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
+                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
+                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
+                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
+                grupos = length(procesos[sid]["grupos"])
+
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+            }
+        }
+    ' | sort -n -k2,2
+}
+
+mostrar_sesiones_grupos_reversa() {
+    printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
+    echo "---------------------------------------------------------------------"
+
+    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+        BEGIN {
+            split(pids, pids_array, "|")
+            for (pid in pids_array) pids_set[pids_array[pid]]
+        }
+        NR > 1 {
+            usuario_valido = ($4 ~ usuarios || usuarios == "")
+            pid_valido = ($3 in pids_set || length(pids_set) == 0)
+            sesion_valida = (mostrar_sesion_0 == "true" || $1 != 0)
+            terminal_valida = (con_terminal == "false" || $5 != "?")
+
+            if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
+                procesos[$1]["grupos"][$2]++
+                procesos[$1]["mem_total"] += $6
+
+                if (!procesos[$1]["lider"]) {
+                    procesos[$1]["lider_user"] = $4
+                    procesos[$1]["lider_tty"] = $5
+                    procesos[$1]["lider_cmd"] = $7
+                }
+            }
+        }
+        END {
+            for (sid in procesos) {
+                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
+                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
+                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
+                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
+                grupos = length(procesos[sid]["grupos"])
+
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+            }
+        }
+    ' | sort -r -n -k2,2
+}
+
+
+if [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == false ]]; then 
+    mostrar_procesos_memoria
+elif [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == true ]]; then
+    mostrar_procesos_memoria_reversa
+elif [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == false ]]; then
     mostrar_procesos
-else 
+elif [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == true ]]; then
+    mostrar_procesos_reversa
+elif [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == true ]]; then
+    echo "la opción -sm y la opcion -sg no son compatibles entre si"
+    exit 1
+elif [[ "$mostrar_tabla_procesos" == true && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == true ]]; then
+    echo "La opción -e y la opción -sg no son compatibles entre si"
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == false ]]; then
+    mostrar_sesiones_memoria
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == true ]]; then
+    mostrar_sesiones_memoria_reversa
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == true && "$mostrar_tabla_grupos" == true ]]; then
+    echo "la opción -sm y la opcion -sg no son compatibles entre si"
+    exit 1
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == true && "$mostrar_tabla_reversa" == false ]]; then
+    mostrar_sesiones_grupos
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == true && "$mostrar_tabla_reversa" == true ]]; then
+    mostrar_sesiones_grupos_reversa
+elif [[ "$mostrar_tabla_procesos" == false && "$mostrar_tabla_memoria" == false && "$mostrar_tabla_grupos" == false && "$mostrar_tabla_reversa" == true ]]; then
+    mostrar_sesiones_reversa
+else
     mostrar_sesiones
 fi

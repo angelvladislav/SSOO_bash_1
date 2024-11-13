@@ -10,6 +10,9 @@ mostrar_ayuda() {
     echo "  -u user1 ...    Muestra los procesos de los usuarios especificados."
     echo "  -d dir          Muestra procesos abiertos en un directorio especificado."
     echo "  -t              Los procesos seleccionados tendrán que tener forzosamente una termnal asociada."
+    echo "  -sm             Las tablas se ordenaran por memoria."
+    echo "  -sg             Las tablas se ordenaran por grupos (incompatible con -e)."
+    echo "  -r              Las tablas se ordenaran reversivamente."
     exit 0
 }
 
@@ -83,13 +86,17 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+echo " "
+echo "TABLA DE VARIABLES"
 echo "Usuarios especificados: ${usuarios[*]}"
 echo "Directorio especificado: $directorio_actual"
 echo "Mostrar sesión 0: $mostrar_sesion_0"
 echo "Mostrar procesos: $mostrar_tabla_procesos"
+echo "Mostrar terminal: $con_terminal"
 echo "Mostrar tabla segun la memoria: $mostrar_tabla_memoria"
 echo "Mostrar tabla segun grupos: $mostrar_tabla_grupos"
 echo "Mostrar tabla reversa: $mostrar_tabla_reversa"
+echo " "
 
 pids_directorio=() 
 if [[ -n "$directorio_actual" ]]; then
@@ -109,7 +116,9 @@ mostrar_procesos() {
     ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -133,7 +142,9 @@ mostrar_procesos_reversa() {
     ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -157,7 +168,9 @@ mostrar_procesos_memoria() {
     ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -181,7 +194,9 @@ mostrar_procesos_memoria_reversa() {
     ps -eo sid,pgid,pid,euser,tty,%mem,cmd | tr -s ' ' | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1{
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -200,12 +215,14 @@ mostrar_sesiones() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -214,40 +231,57 @@ mostrar_sesiones() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
-    ' | tr -s ' ' | sort -k4,4 -f
+    ' | sort -k4,4 -f
 }
+
+
+
 
 mostrar_sesiones_reversa() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -256,25 +290,37 @@ mostrar_sesiones_reversa() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
     ' | sort -r -k4,4 -f 
@@ -284,12 +330,14 @@ mostrar_sesiones_memoria() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -298,25 +346,37 @@ mostrar_sesiones_memoria() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
     ' | sort -k3,3
@@ -326,12 +386,14 @@ mostrar_sesiones_memoria_reversa() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -340,25 +402,37 @@ mostrar_sesiones_memoria_reversa() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
     ' | sort -r -k3,3
@@ -368,12 +442,14 @@ mostrar_sesiones_grupos() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -382,25 +458,37 @@ mostrar_sesiones_grupos() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
     ' | sort -n -k2,2
@@ -410,12 +498,14 @@ mostrar_sesiones_grupos_reversa() {
     printf "%-10s %-10s %-10s %-15s %-10s %s\n" "SID" "GRUPOS" "%MEM_TOTAL" "USER_LIDER" "TTY" "CMD"
     echo "---------------------------------------------------------------------"
 
-    usuarios_regex=$(IFS="|"; echo "${usuarios[*]}")
+    usuarios_especificados=$(IFS="|"; echo "${usuarios[*]}")
 
-    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_regex" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
+    ps -eo sid,pgid,pid,euser,tty,%mem,cmd | awk -v mostrar_sesion_0="$mostrar_sesion_0" -v usuarios="$usuarios_especificados" -v pids="$(IFS="|"; echo "${pids_directorio[*]}")" -v con_terminal="$con_terminal" '
         BEGIN {
             split(pids, pids_array, "|")
-            for (pid in pids_array) pids_set[pids_array[pid]]
+            for (pid in pids_array) {
+                pids_set[pids_array[pid]]
+            }
         }
         NR > 1 {
             usuario_valido = ($4 ~ usuarios || usuarios == "")
@@ -424,25 +514,37 @@ mostrar_sesiones_grupos_reversa() {
             terminal_valida = (con_terminal == "false" || $5 != "?")
 
             if (usuario_valido && pid_valido && sesion_valida && terminal_valida) {
-                procesos[$1]["grupos"][$2]++
-                procesos[$1]["mem_total"] += $6
+                sid = $1
+                pgid = $2
+                clave_grupo = sid "_" pgid
 
-                if (!procesos[$1]["lider"]) {
-                    procesos[$1]["lider_user"] = $4
-                    procesos[$1]["lider_tty"] = $5
-                    procesos[$1]["lider_cmd"] = $7
+                # Incrementar el contador de grupos únicos por SID
+                if (!(clave_grupo in grupos_por_sid_unicos)) {
+                    grupos_por_sid[sid]++
+                    grupos_por_sid_unicos[clave_grupo] = 1
+                }
+
+                # Acumular la memoria total para el SID
+                mem_total[sid] += $6
+
+                # Registrar los datos del líder solo si aún no se ha asignado
+                if (!(sid in lider_user)) {
+                    lider_user[sid] = $4
+                    lider_tty[sid] = $5
+                    lider_cmd[sid] = $7
                 }
             }
         }
         END {
-            for (sid in procesos) {
-                mem_total = procesos[sid]["mem_total"] ? procesos[sid]["mem_total"] : "?"
-                lider_user = procesos[sid]["lider_user"] ? procesos[sid]["lider_user"] : "?"
-                lider_tty = procesos[sid]["lider_tty"] ? procesos[sid]["lider_tty"] : "?"
-                lider_cmd = procesos[sid]["lider_cmd"] ? procesos[sid]["lider_cmd"] : "?"
-                grupos = length(procesos[sid]["grupos"])
+            for (sid in grupos_por_sid) {
+                # Valores predeterminados para campos no definidos
+                mem_total_val = (mem_total[sid] ? mem_total[sid] : "?")
+                lider_user_val = (lider_user[sid] ? lider_user[sid] : "?")
+                lider_tty_val = (lider_tty[sid] ? lider_tty[sid] : "?")
+                lider_cmd_val = (lider_cmd[sid] ? lider_cmd[sid] : "?")
+                grupos_totales = grupos_por_sid[sid]
 
-                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos, mem_total, lider_user, lider_tty, lider_cmd
+                printf "%-10s %-10d %-10.2f %-15s %-10s %s\n", sid, grupos_totales, mem_total_val, lider_user_val, lider_tty_val, lider_cmd_val
             }
         }
     ' | sort -r -n -k2,2
